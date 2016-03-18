@@ -10,34 +10,30 @@ import stat, shutil
 from getopt import gnu_getopt as getopt
 from math import ceil
 from datetime import datetime
-import imp
 
 def usage():
     print sys.argv[0], " : create pbs jobs"
     print "  Mandatory options :"
     print "   --jobName  NAME                  Name of job"
-    print "   --fileList DATA_FILES            File list text file"
-    print "   --maxFiles N                     Maximum number of files per job"
-    print "   --nJobs    N                     Number of Job sections"
     print "   --cfg      CONFIG_FILE_cfg.py    Configuration file"
+    print "   --maxFiles N                     Maximum number of files per job"
+    print "   --fileList DATA_FILES            File list text file"
     print "  Optional :"
     print "   --queue QUEUE_NAME               Set the batch queue name"
-    print "   --secondFileList DATA_FILES      Secondary file list text file"
     print "   -n                               Do not submit jobs to batch"
     print "   --transferDest OUTPUT_LOCATION   OUTPUT DIRECTORY (/store will be assumed to SE)"
     print "   -g                               Grid certificate is required"
     print "   --maxEvent N                     Maximum number of events per job (-1 by default)"
     print "   --transferFiles                  Additional files to transfer"
-    print "   --customise CUSTOMISE_cfg.py     Configuration file for customization"
+    print "   --njobs                          No. of jobs, for jobs with no input files, i.e. gen jobs"
     print "   --args                           general arguments"
+    print "   --pileup filelist                add pileup from filelist"
     sys.exit()
 
 # Parse arguments
 if len(sys.argv) < 2: usage()
 try:
-    opts, args = getopt(sys.argv[1:], 'ng', ['jobName=', 'fileList=', 'maxFiles=', 'nJobs=', 'cfg=',
-                                             'maxEvent=', 'queue=', 'transferDest=', 'transferFiles=',
-                                             'args=', 'secondFileList=', 'customise=',])
+    opts, args = getopt(sys.argv[1:], 'ng', ['jobName=', 'fileList=', 'maxFiles=', 'queue=', 'transferDest=', 'cfg=', 'maxEvent=', 'njobs=', 'transferFiles=','args=', 'pileup='])
     opts = dict(opts)
 except:
     print "!!! Error parsing arguments"
@@ -53,6 +49,11 @@ class TheJobConfig():
         self.doSubmit = True
         self.maxEvent = -1
         self.additional_options=""
+        self.fileList=""
+        self.maxFiles=1
+        self.njobs=0
+        self.addpileup = False
+        self.pileupfilelist = ""
         hostName = os.environ['HOSTNAME']
         if hostName.startswith("lxplus") or hostName.endswith("cern.ch"):
             self.site = "CERN"
@@ -80,9 +81,13 @@ class TheJobConfig():
             print "!!! This site is not supported"
             sys.exit()
 
-        ## (pre) load cfg file to determine the cmssw job type
-        if '--args' in opts : self.additional_options = opts['--args']
+        ## Override by options
         try:
+            self.jobName = opts['--jobName']
+            self.jobDir = os.path.abspath(self.jobName)
+            self.cmsswBase = os.environ["CMSSW_BASE"]
+            self.jobBase =  self.jobDir.replace(os.path.dirname(self.cmsswBase), '').strip('/')
+
             self.cfgFileName = opts['--cfg']
             if not self.cfgFileName.endswith('.py'):
                 print "ERROR: Python config file is needed"
@@ -90,70 +95,6 @@ class TheJobConfig():
             if not os.path.exists(self.cfgFileName):
                 print "ERROR: Cannot find config file", self.cfgFileName
                 sys.exit()
-        except:
-            print "!!! Error parsing cfg option or wrong cfg file"
-            usage()
-
-        cout = sys.stdout
-        sys.stdout = open("/dev/null", "w")
-        sys.argv=[]
-        sys.argv.extend(["cmsRun", ".py"])
-        sys.argv.extend(self.additional_options.split())
-        process = imp.load_source("process", self.cfgFileName).process
-        sys.stdout = cout
-        source = process.source
-        if source.type_() == "EmptySource":
-            if '--maxEvent' not in opts:
-                print "ERROR: --maxEvent is necessary for the EmptySource"
-                sys.exit()
-            self.maxEvent = int(opts['--maxEvent'])
-        elif source.type_() == "PoolSource":
-            if '--maxEvent' in opts: self.maxEvent = int(opts['--maxEvent'])
-            fileList = opts['--fileList']
-            if not os.path.exists(fileList):
-                print "ERROR: Cannot find file list", fileList
-                sys.exit()
-
-            ## Collect root files
-            self.files = []
-            for f in open(fileList).readlines():
-                f = f.strip()
-                f = f.strip('\',"')
-                if len(f) < 5: continue
-                if '#' == f[0] or '.root' != f[-5:]: continue
-                self.files.append(f)
-            nFiles = len(self.files)
-            if nFiles == 0:
-                print "ERROR: Empty dataset."
-                sys.exit()
-            ## Sort files by its key "i", filename_[i]_[j]_hash.root
-            #files.sort(key=lambda f: int(f.split('/')[-1].split('_')[1]))
-
-            ## Collect secondary input files
-            self.secondFiles = []
-            if '--secondFileList' in opts:
-                secondFileList = opts['--secondFileList']
-                for f in open(secondFileList).readlines():
-                    f = f.strip().strip('\',"')
-                    if len(f) < 5: continue
-                    if '#' == f[0] or '.root' != f[-5:]: continue
-                    self.secondFiles.append(f)
-
-            if '--maxFiles' in opts:
-                self.maxFiles = int(opts['--maxFiles'])
-            elif '--nJobs' in opts:
-                nJobs = int(opts['--nJobs'])
-                self.maxFiles = max(1, len(self.files/nJobs))
-            else:
-                print "ERROR: No maxFiles nor nJobs among the option"
-                sys.exit()
-
-        ## Override by options
-        try:
-            self.jobName = opts['--jobName']
-            self.jobDir = os.path.abspath(self.jobName)
-            self.cmsswBase = os.environ["CMSSW_BASE"]
-            self.jobBase =  self.jobDir.replace(os.path.dirname(self.cmsswBase), '').strip('/')
 
             if os.path.isdir(self.jobDir):
                 print "ERROR: Output directory already exists."
@@ -162,20 +103,22 @@ class TheJobConfig():
             print "!!! Error parsing options"
             usage()
 
+        if '--fileList' in opts:
+            self.fileList = opts['--fileList']
+        if '--maxFiles' in opts:
+            self.maxFiles = int(opts['--maxFiles'])
+        if '--njobs' in opts:
+            self.njobs = int(opts['--njobs'])
+        if '--pileup' in opts:
+            self.addpileup = True
+            self.pileupfilelist = opts['--pileup']
+
         ## Override options if they are given
         if '-n' in opts: self.doSubmit = False
         if '-g' in opts: self.doGrid   = True
         if '--queue' in opts: queue = opts['--queue']
-
-        ## Load customisation if given
-        self.customise = None
-        if '--customise' in opts:
-            customiseFile = opts['--customise']
-            if os.path.exists(customiseFile):
-                tmpObj = imp.load_source('customise', customiseFile)
-                if hasattr(tmpObj, 'customise'): self.customise = tmpObj.customise
-                else: print "Cannot find customise(process) function in the cfg ", customiseFile
-
+        if '--maxEvent' in opts: self.maxEvent = int(opts['--maxEvent'])
+        if '--args' in opts : self.additional_options = opts['--args']
         ## Determine submit command
         if self.scheduler == "LSB":
             self.submitCmd = 'bsub -q %s' % queue
@@ -197,7 +140,7 @@ class TheJobConfig():
             else:
                 self.transferCmd = "mv "
         elif self.site == "KISTI":
-            if self.dest.startswith('/store/'): self.dest = 'root://cms-xrdr.sdfarm.kr:1094///xrd/%s' % self.dest
+            if self.dest.startswith('/store/'): self.dest = 'root://cms-xrdr.sdfarm.kr:1094//xrd/%s' % self.dest
             if self.dest.startswith('root://'):
                 self.transferCmd = 'xrdcp '
             else:
@@ -210,6 +153,26 @@ class TheJobConfig():
         self.outFileNames = []
         if '--transferFiles' in opts:
             self.outFileNames = opts['--transferFiles'].split(',')
+
+        ## Collect root files
+        self.files = []
+        if self.fileList:
+            for f in open(self.fileList).readlines():
+                f = f.strip()
+                f = f.strip('\',"')
+                if '#' == f[0]: continue
+                #if len(f) < 4: continue
+                #if '.lhe' != f[-4:]: continue
+                #if len(f) < 5: continue
+                #if '.root' != f[-5:]: continue
+                self.files.append(f)
+            nFiles = len(self.files)
+
+        #if nFiles == 0:
+        #    print "ERROR: Empty dataset."
+        #    sys.exit()
+        ## Sort files by its key "i", filename_[i]_[j]_hash.root
+        #files.sort(key=lambda f: int(f.split('/')[-1].split('_')[1]))
 
     def initialiseWorkspace(self):
         ## Prepare working directory
@@ -226,15 +189,14 @@ class TheJobConfig():
 
         ## Load cfg file
         print "@@ Loading python cfg..."
+        sys.path.append('.')
         cout = sys.stdout
         sys.stdout = open("%s/log.txt" % self.jobDir, "w")
         sys.argv=[]
-        sys.argv.extend(["cmsRun", ".py"])
-        sys.argv.extend(self.additional_options.split())
-        process = imp.load_source('process', self.cfgFileName).process
+        sys.argv.append(".py")
+        sys.argv.extend( self.additional_options.split())
+        process = __import__('.'.join(self.cfgFileName.split('.')[:-1])).process
         process.maxEvents.input = self.maxEvent
-        ## Customise the cfg
-        if self.customise != None: self.customise(process)
         sys.stdout = cout
 
         ## Memorise to modify output file names
@@ -253,20 +215,56 @@ class TheJobConfig():
         print "@@ Splitting jobs..."
         nFiles = len(self.files)
         self.nSection = int(ceil(1.0*nFiles/self.maxFiles))
+
         for section in range(self.nSection):
             begin = section*self.maxFiles
             end = min(begin+self.maxFiles, nFiles)
-
             process.source.fileNames = self.files[begin:end]
-            #for modName in outFileModes:
-            #    getattr(process, modName).fileName = "%s_%03d.root" % (outFileModes[modName][:-5], section)
-
-            ## Add secondary files if requested
-            if len(self.secondFiles) > 0:
-                process.source.secondaryFileNames = cms.untracked.vstring(self.secondFiles[:])
-
             cfgFileName = "%s/job_%03d_cfg.py" % (self.jobDir, section)
             open(cfgFileName, "w").write(process.dumpPython())
+
+        ## pick MinBias samples randomly
+        if self.addpileup:
+            from random import randint
+            print 'load pileup from %s' % self.pileupfilelist
+            fp = open(self.pileupfilelist)
+            lines = fp.readlines()
+            self.nSection = int(ceil(1.0*nFiles/self.maxFiles))
+            for section in range(self.nSection):
+                print 'MinBias Samples for job_%03d' % section
+                pulist1 = lines[randint(0,11411)].strip()
+                pulist2 = lines[randint(0,11411)].strip()
+                pulist3 = lines[randint(0,11411)].strip()
+                pulist4 = lines[randint(0,11411)].strip()
+                pulist5 = lines[randint(0,11411)].strip()
+                pulist6 = lines[randint(0,11411)].strip()
+                pulist7 = lines[randint(0,11411)].strip()
+                pulist8 = lines[randint(0,11411)].strip()
+                pulist9 = lines[randint(0,11411)].strip()
+                pulist10 = lines[randint(0,11411)].strip()
+                process.mix.input.fileNames = [pulist1, pulist2, pulist3, pulist4, pulist5, pulist6, pulist7, pulist8, pulist9, pulist10]
+                cfgFileName = "%s/job_%03d_cfg.py" % (self.jobDir, section)
+                open(cfgFileName, "w").write(process.dumpPython())
+                ## you can see the selected MinBias sample in job_XX.err
+                open(cfgFileName, "a").write("\n\n\nprint 'Path for selected MinBias Samples : '")
+                open(cfgFileName, "a").write("\nprint '%s'" % pulist1)
+                open(cfgFileName, "a").write("\nprint '%s'" % pulist2)
+                open(cfgFileName, "a").write("\nprint '%s'" % pulist3)
+                open(cfgFileName, "a").write("\nprint '%s'" % pulist4)
+                open(cfgFileName, "a").write("\nprint '%s'" % pulist5)
+                open(cfgFileName, "a").write("\nprint '%s'" % pulist6)
+                open(cfgFileName, "a").write("\nprint '%s'" % pulist7)
+                open(cfgFileName, "a").write("\nprint '%s'" % pulist8)
+                open(cfgFileName, "a").write("\nprint '%s'" % pulist9)
+                open(cfgFileName, "a").write("\nprint '%s'\n" % pulist10)
+
+        # for jobs with no input files, i.e. gen jobs
+        if self.njobs > 0:
+            self.nSection = self.njobs
+            for section in range(self.nSection):
+                process.RandomNumberGeneratorService.generator.initialSeed = section
+                cfgFileName = "%s/job_%03d_cfg.py" % (self.jobDir, section)
+                open(cfgFileName, "w").write(process.dumpPython())
 
         ## Checking voms proxy
         if self.doGrid:
@@ -300,7 +298,7 @@ if [ _$CMS_PATH == _ ]; then
   source $CMS_PATH/cmsset_default.sh
 fi
 
-tar xzf {0}/job.tar.gz
+tar xzf {0}/job.tgz
 cd {1}
 scram build ProjectRename
 eval `scram runtime -sh`
@@ -368,14 +366,14 @@ hostname
 ## Prepare workdirectory
 mkdir -p /tmp/${{USER}}/PBS_${{PBS_JOBID}}
 cd /tmp/${{USER}}/PBS_${{PBS_JOBID}}
-tar xzf {0}/job.tar.gz
+tar xzf {0}/job.tgz
 cd {1}
 PROXY_CA=/tmp/${{USER}}/PBS_${{PBS_JOBID}}/{1}/x509up_u`id -u`
 echo ${{PROXY_CA}}
 voms-proxy-info -exists --valid 8:00
 TIMEVALID=$?
 if [ -f ${{PROXY_CA}} ] && [ ${{TIMEVALID}} -eq 1 ]; then
-  echo "copy proxy ca to /tmp" 
+  echo "copy proxy ca to /tmp"
   cp -f ${{PROXY_CA}} /tmp
 else
   if [ ! -f ${{PROXY_CA}} ]; then
@@ -384,7 +382,7 @@ else
   if [ ${{TIMEVALID}} -eq 1 ]; then
     echo "Sufficient valid time"
   fi
-fi 
+fi
 scram build ProjectRename
 eval `scram runtime -sh`
 echo BEGIN `date` cmsRun job_${{SECTION}}_cfg.py >> {0}/submit.log
@@ -441,7 +439,7 @@ if [ _$CMS_PATH == _ ]; then
 fi
 
 hostname
-tar xzf job.tar.gz
+tar xzf job.tgz
 cd {1}""".format(self.jobDir, self.jobBase, os.environ['CMS_PATH'],self.additional_options)
         if (self.doGrid) :
           print>>fout,"""
@@ -502,7 +500,7 @@ should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
 output = job_$(Process).log
 error = job_$(Process).err
-transfer_input_files = job.tar.gz"""
+transfer_input_files = job.tgz"""
         if self.transferCmd == '':
             print>>jdlOut, "transfer_output_files = ", (",".join([os.path.join(self.jobBase, x) for x in self.outFileNames]))
             remapStrs = ["{0}.{1}={0}_$(Process).{1}".format('.'.join(x.split('.')[:-1]), x.split('.')[-1]) for x in self.outFileNames]
@@ -512,17 +510,15 @@ transfer_input_files = job.tar.gz"""
 
     def archive(self):
         ## Archive libraries and other stuffs
+        archiveCmd = "tar czf {0}/job.tgz {1} --xform='s:{1}:{2}:' -P".format(self.jobDir, self.cmsswBase, os.path.basename(self.cmsswBase))
+        #archiveCmd += " --exclude tmp --exclude '*.root' --exclude 'job.tgz' --exclude .git --exclude-tag-all=.create-batch"
+        archiveCmd += " --exclude tmp --exclude 'job.tgz' --exclude .git --exclude-tag-all=.create-batch"
+        print "@@ Archive files for job submission..."
+        os.system(archiveCmd)
+        os.system("rm -f %s/job_*_cfg.py" % self.jobDir)
+
         tmpFile = open("%s/.create-batch" % self.jobDir, "w")
         tmpFile.close()
-
-        print "@@ Archive files for job submission..." 
-        exclCommon = "--exclude tmp --exclude 'job.tar' --exclude 'job.tar.gz' --exclude-vcs"
-        os.system("tar cf {0}/job.tar {1} --xform='s:{1}:{2}:' -P ".format(self.jobDir, self.cmsswBase, os.path.basename(self.cmsswBase))
-                 + exclCommon + " --exclude-tag-all=.create-batch --exclude-tag-all=.requestcache ")
-        os.system("tar rf {0}/job.tar {0} --xform='s:{1}:{2}:' -P ".format(self.jobDir, self.cmsswBase, os.path.basename(self.cmsswBase))
-                 + exclCommon + " --exclude=*.root")
-        os.system("gzip %s/job.tar" % self.jobDir)
-        #os.system("rm -f %s/job_*_cfg.py" % self.jobDir)
 
     def submit(self):
         if self.doSubmit:
@@ -547,3 +543,4 @@ jobConfig.archive()
 jobConfig.submit()
 
 print "@@ Done."
+
