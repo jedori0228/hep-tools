@@ -221,42 +221,28 @@ class TheJobConfig():
             end = min(begin+self.maxFiles, nFiles)
             process.source.fileNames = self.files[begin:end]
             cfgFileName = "%s/job_%03d_cfg.py" % (self.jobDir, section)
-            open(cfgFileName, "w").write(process.dumpPython())
+            #open(cfgFileName, "w").write(process.dumpPython())
 
-        ## pick MinBias samples randomly
-        if self.addpileup:
-            from random import randint
-            print 'load pileup from %s' % self.pileupfilelist
-            fp = open(self.pileupfilelist)
-            lines = fp.readlines()
-            self.nSection = int(ceil(1.0*nFiles/self.maxFiles))
-            for section in range(self.nSection):
-                print 'MinBias Samples for job_%03d' % section
-                pulist1 = lines[randint(0,11411)].strip()
-                pulist2 = lines[randint(0,11411)].strip()
-                pulist3 = lines[randint(0,11411)].strip()
-                pulist4 = lines[randint(0,11411)].strip()
-                pulist5 = lines[randint(0,11411)].strip()
-                pulist6 = lines[randint(0,11411)].strip()
-                pulist7 = lines[randint(0,11411)].strip()
-                pulist8 = lines[randint(0,11411)].strip()
-                pulist9 = lines[randint(0,11411)].strip()
-                pulist10 = lines[randint(0,11411)].strip()
-                process.mix.input.fileNames = [pulist1, pulist2, pulist3, pulist4, pulist5, pulist6, pulist7, pulist8, pulist9, pulist10]
-                cfgFileName = "%s/job_%03d_cfg.py" % (self.jobDir, section)
-                open(cfgFileName, "a").write(process.dumpPython())
-                ## you can see the selected MinBias sample in job_XX.err
-                open(cfgFileName, "a").write("\n\n\nprint 'Path for selected MinBias Samples : '")
-                open(cfgFileName, "a").write("\nprint '%s'" % pulist1)
-                open(cfgFileName, "a").write("\nprint '%s'" % pulist2)
-                open(cfgFileName, "a").write("\nprint '%s'" % pulist3)
-                open(cfgFileName, "a").write("\nprint '%s'" % pulist4)
-                open(cfgFileName, "a").write("\nprint '%s'" % pulist5)
-                open(cfgFileName, "a").write("\nprint '%s'" % pulist6)
-                open(cfgFileName, "a").write("\nprint '%s'" % pulist7)
-                open(cfgFileName, "a").write("\nprint '%s'" % pulist8)
-                open(cfgFileName, "a").write("\nprint '%s'" % pulist9)
-                open(cfgFileName, "a").write("\nprint '%s'\n" % pulist10)
+            ## pick MinBias samples randomly
+            if self.addpileup:
+              from random import randint
+              fp = open(self.pileupfilelist)
+              lines = fp.readlines()
+              print 'MinBias Samples for job_%03d' % section
+              pulist1 = lines[randint(0,11411)].strip()
+              pulist2 = lines[randint(0,11411)].strip()
+              pulist3 = lines[randint(0,11411)].strip()
+              pulist4 = lines[randint(0,11411)].strip()
+              pulist5 = lines[randint(0,11411)].strip()
+              pulist6 = lines[randint(0,11411)].strip()
+              pulist7 = lines[randint(0,11411)].strip()
+              pulist8 = lines[randint(0,11411)].strip()
+              pulist9 = lines[randint(0,11411)].strip()
+              pulist10 = lines[randint(0,11411)].strip()
+              process.mix.input.fileNames = [pulist1, pulist2, pulist3, pulist4, pulist5, pulist6, pulist7, pulist8, pulist9, pulist10]
+              open(cfgFileName, "w").write(process.dumpPython())
+            else:
+              open(cfgFileName, "w").write(process.dumpPython())
 
         # for jobs with no input files, i.e. gen jobs
         if self.njobs > 0:
