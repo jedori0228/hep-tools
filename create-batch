@@ -244,7 +244,7 @@ class TheJobConfig():
                 pulist10 = lines[randint(0,11411)].strip()
                 process.mix.input.fileNames = [pulist1, pulist2, pulist3, pulist4, pulist5, pulist6, pulist7, pulist8, pulist9, pulist10]
                 cfgFileName = "%s/job_%03d_cfg.py" % (self.jobDir, section)
-                open(cfgFileName, "w").write(process.dumpPython())
+                open(cfgFileName, "a").write(process.dumpPython())
                 ## you can see the selected MinBias sample in job_XX.err
                 open(cfgFileName, "a").write("\n\n\nprint 'Path for selected MinBias Samples : '")
                 open(cfgFileName, "a").write("\nprint '%s'" % pulist1)
