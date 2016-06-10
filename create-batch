@@ -28,12 +28,13 @@ def usage():
     print "   --njobs                          No. of jobs, for jobs with no input files, i.e. gen jobs"
     print "   --args                           general arguments"
     print "   --pileup filelist                add pileup from filelist"
+    print "   --cmd_name                       (in kisti condor) cmd name shown in condor_q"
     sys.exit()
 
 # Parse arguments
 if len(sys.argv) < 2: usage()
 try:
-    opts, args = getopt(sys.argv[1:], 'ng', ['jobName=', 'fileList=', 'maxFiles=', 'queue=', 'transferDest=', 'cfg=', 'maxEvent=', 'njobs=', 'transferFiles=','args=', 'pileup='])
+    opts, args = getopt(sys.argv[1:], 'ng', ['jobName=', 'fileList=', 'maxFiles=', 'queue=', 'transferDest=', 'cfg=', 'maxEvent=', 'njobs=', 'transferFiles=','args=', 'pileup=', 'cmd_name='])
     opts = dict(opts)
 except:
     print "!!! Error parsing arguments"
@@ -54,6 +55,7 @@ class TheJobConfig():
         self.njobs=0
         self.addpileup = False
         self.pileupfilelist = ""
+        self.cmdname = "run"
         hostName = os.environ['HOSTNAME']
         if hostName.startswith("lxplus") or hostName.endswith("cern.ch"):
             self.site = "CERN"
@@ -75,6 +77,7 @@ class TheJobConfig():
         elif hostName.endswith('sdfarm.kr'):
             self.site = "KISTI"
             self.scheduler = "CONDOR"
+            queu = ""
         else:
             self.site = "NONE"
             self.scheculer = "NONE"
@@ -112,6 +115,8 @@ class TheJobConfig():
         if '--pileup' in opts:
             self.addpileup = True
             self.pileupfilelist = opts['--pileup']
+        if '--cmd_name' in opts:
+            self.cmdname = opts['--cmd_name']
 
         ## Override options if they are given
         if '-n' in opts: self.doSubmit = False
@@ -228,17 +233,20 @@ class TheJobConfig():
               from random import randint
               fp = open(self.pileupfilelist)
               lines = fp.readlines()
+              total_pu_lines=-1
+              for line in lines:
+                total_pu_lines+=1
               print 'MinBias Samples for job_%03d' % section
-              pulist1 = lines[randint(0,11411)].strip()
-              pulist2 = lines[randint(0,11411)].strip()
-              pulist3 = lines[randint(0,11411)].strip()
-              pulist4 = lines[randint(0,11411)].strip()
-              pulist5 = lines[randint(0,11411)].strip()
-              pulist6 = lines[randint(0,11411)].strip()
-              pulist7 = lines[randint(0,11411)].strip()
-              pulist8 = lines[randint(0,11411)].strip()
-              pulist9 = lines[randint(0,11411)].strip()
-              pulist10 = lines[randint(0,11411)].strip()
+              pulist1 = lines[randint(0,total_pu_lines)].strip()
+              pulist2 = lines[randint(0,total_pu_lines)].strip()
+              pulist3 = lines[randint(0,total_pu_lines)].strip()
+              pulist4 = lines[randint(0,total_pu_lines)].strip()
+              pulist5 = lines[randint(0,total_pu_lines)].strip()
+              pulist6 = lines[randint(0,total_pu_lines)].strip()
+              pulist7 = lines[randint(0,total_pu_lines)].strip()
+              pulist8 = lines[randint(0,total_pu_lines)].strip()
+              pulist9 = lines[randint(0,total_pu_lines)].strip()
+              pulist10 = lines[randint(0,total_pu_lines)].strip()
               process.mix.input.fileNames = [pulist1, pulist2, pulist3, pulist4, pulist5, pulist6, pulist7, pulist8, pulist9, pulist10]
               open(cfgFileName, "w").write(process.dumpPython())
             else:
@@ -250,7 +258,32 @@ class TheJobConfig():
             for section in range(self.nSection):
                 process.RandomNumberGeneratorService.generator.initialSeed = section
                 cfgFileName = "%s/job_%03d_cfg.py" % (self.jobDir, section)
-                open(cfgFileName, "w").write(process.dumpPython())
+                #open(cfgFileName, "w").write(process.dumpPython())
+
+                ## pick MinBias samples randomly
+                if self.addpileup:
+                  from random import randint
+                  fp = open(self.pileupfilelist)
+                  lines = fp.readlines()
+                  total_pu_lines=-1
+                  for line in lines:
+                    total_pu_lines+=1
+                  print 'MinBias Samples for job_%03d' % section
+                  pulist1 = lines[randint(0,total_pu_lines)].strip()
+                  pulist2 = lines[randint(0,total_pu_lines)].strip()
+                  #pulist3 = lines[randint(0,total_pu_lines)].strip()
+                  #pulist4 = lines[randint(0,total_pu_lines)].strip()
+                  #pulist5 = lines[randint(0,total_pu_lines)].strip()
+                  #pulist6 = lines[randint(0,total_pu_lines)].strip()
+                  #pulist7 = lines[randint(0,total_pu_lines)].strip()
+                  #pulist8 = lines[randint(0,total_pu_lines)].strip()
+                  #pulist9 = lines[randint(0,total_pu_lines)].strip()
+                  #pulist10 = lines[randint(0,total_pu_lines)].strip()
+                  #process.mix.input.fileNames = [pulist1, pulist2, pulist3, pulist4, pulist5, pulist6, pulist7, pulist8, pulist9, pulist10]
+                  process.mix.input.fileNames = [pulist1, pulist2]
+                  open(cfgFileName, "w").write(process.dumpPython())
+                else:
+                  open(cfgFileName, "w").write(process.dumpPython())
 
         ## Checking voms proxy
         if self.doGrid:
@@ -409,7 +442,8 @@ done""" % (' '.join(self.outFileNames), self.transferCmd, self.dest)
     def makeCondorJob(self):
         ## Write run script
         print "@@ Writing run script..."
-        runFileName = "%s/run.sh" % self.jobDir
+        #runFileName = "%s/run.sh" % self.jobDir
+        runFileName = "%s/%s.sh" % (self.jobDir, self.cmdname)
         fout = open(runFileName, "w")
 
         print>>fout, """#!/bin/bash
@@ -474,7 +508,7 @@ done""" % (' '.join(self.outFileNames), self.transferCmd, self.dest)
         # Condor jobs
         jdlOut = open("%s/submit.jds" % self.jobDir, "w")
         print>>jdlOut, "# Job description file for condor job", self.jobName
-        print>>jdlOut, """executable = run.sh
+        print>>jdlOut, """executable = """+self.cmdname+""".sh
 universe   = vanilla
 arguments  = $(Process)
 requirements = OpSysMajorVer == 6
